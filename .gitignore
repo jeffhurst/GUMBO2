@@ -1,0 +1,6 @@
+backend/.venv/
+backend/.env
+backend/memory/turns/*.json
+frontend/build/
+__pycache__/
+*.pyc
