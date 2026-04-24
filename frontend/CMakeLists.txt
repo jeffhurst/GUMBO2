@@ -18,6 +18,12 @@ FetchContent_Declare(
   GIT_REPOSITORY https://github.com/machinezone/IXWebSocket.git
   GIT_TAG v11.4.5
 )
+# IXWebSocket enables zlib by default, but many clean Windows setups do not
+# provide a preinstalled zlib package discoverable by CMake.
+#
+# Disable optional compression support so first-time frontend builds work
+# without requiring users to install external zlib development artifacts.
+set(USE_ZLIB OFF CACHE BOOL "Disable zlib for vendored IXWebSocket" FORCE)
 FetchContent_MakeAvailable(ixwebsocket)
 
 FetchContent_Declare(
