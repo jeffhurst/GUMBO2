@@ -3,6 +3,7 @@
 #include "raylib.h"
 
 #include <algorithm>
+#include <sstream>
 
 void App::run() {
     SetConfigFlags(FLAG_WINDOW_RESIZABLE);
@@ -29,10 +30,10 @@ void App::run() {
             break;
         }
 
-        handleInput();
-        processBackendEvents();
-
         const auto layout = ComputeLayout(GetScreenWidth(), GetScreenHeight());
+
+        handleInput(layout);
+        processBackendEvents();
 
         BeginDrawing();
         ClearBackground(Color{18, 18, 24, 255});
@@ -41,11 +42,19 @@ void App::run() {
     }
 
     wsClient_.close();
-    backend_.stopIfStarted();
+    backend_.keepBackendRunningOnExit();
     CloseWindow();
 }
 
-void App::handleInput() {
+void App::handleInput(const LayoutRects& layout) {
+    const Vector2 mousePos = GetMousePosition();
+    const bool mouseInConversation = CheckCollisionPointRec(mousePos, layout.conversation);
+    const float wheelDelta = GetMouseWheelMove();
+    if (mouseInConversation && wheelDelta != 0.0f) {
+        conversationScrollLines_ += (wheelDelta > 0.0f ? 3 : -3);
+        conversationScrollLines_ = std::max(0, conversationScrollLines_);
+    }
+
     int key = GetCharPressed();
     while (key > 0) {
         if (key >= 32 && key <= 126) {
@@ -123,32 +132,53 @@ void App::draw(const LayoutRects& layout) {
     DrawText("Console", static_cast<int>(layout.console.x) + 12, static_cast<int>(layout.console.y) + 10,
              20, RAYWHITE);
 
-    int y = static_cast<int>(layout.conversation.y) + 40;
-    DrawText("Backend:", static_cast<int>(layout.conversation.x) + 12, y, 18, GOLD);
-    y += 24;
+    const int padding = 12;
+    const int conversationContentX = static_cast<int>(layout.conversation.x) + padding;
+    const int conversationContentY = static_cast<int>(layout.conversation.y) + 40;
+    const int conversationWidth = static_cast<int>(layout.conversation.width) - (padding * 2);
+    const int lineHeight = 22;
 
-    const int maxBackendLines = 8;
-    int backendStart = static_cast<int>(backendLogs_.size()) > maxBackendLines
-                           ? static_cast<int>(backendLogs_.size()) - maxBackendLines
-                           : 0;
-    for (int i = backendStart; i < static_cast<int>(backendLogs_.size()); ++i) {
-        DrawText(backendLogs_[i].c_str(), static_cast<int>(layout.conversation.x) + 12, y, 16, LIGHTGRAY);
-        y += 20;
+    struct RenderLine {
+        std::string text;
+        Color color;
+    };
+
+    std::vector<RenderLine> lines;
+    lines.push_back({"Backend:", GOLD});
+    for (const auto& backendLine : backendLogs_) {
+        for (const auto& wrapped : wrapTextToWidth(backendLine, 16, conversationWidth)) {
+            lines.push_back({wrapped, LIGHTGRAY});
+        }
+    }
+    lines.push_back({"", LIGHTGRAY});
+    lines.push_back({"Chat:", SKYBLUE});
+
+    for (const auto& msg : chat_) {
+        const std::string prefix = msg.role == "user" ? "You: " : "Gumbo: ";
+        const Color color = msg.role == "user" ? SKYBLUE : LIGHTGRAY;
+        const auto wrappedMessage = wrapTextToWidth(prefix + msg.text, 18, conversationWidth);
+        for (const auto& wrappedLine : wrappedMessage) {
+            lines.push_back({wrappedLine, color});
+        }
     }
 
-    y += 12;
-    DrawText("Chat:", static_cast<int>(layout.conversation.x) + 12, y, 18, SKYBLUE);
-    y += 24;
+    const int availableHeight = static_cast<int>(layout.conversation.height) - 50;
+    const int visibleLineCount = std::max(1, availableHeight / lineHeight);
+    const int maxScroll = std::max(0, static_cast<int>(lines.size()) - visibleLineCount);
+    conversationScrollLines_ = std::min(conversationScrollLines_, maxScroll);
 
-    const int maxMessages = 9;
-    int start = static_cast<int>(chat_.size()) > maxMessages ? static_cast<int>(chat_.size()) - maxMessages : 0;
-    for (int i = start; i < static_cast<int>(chat_.size()); ++i) {
-        const auto& msg = chat_[i];
-        const std::string line = (msg.role == "user" ? "You: " : "Gumbo: ") + msg.text;
-        DrawText(line.c_str(), static_cast<int>(layout.conversation.x) + 12, y, 18,
-                 msg.role == "user" ? SKYBLUE : LIGHTGRAY);
-        y += 24;
+    const int startLine = std::max(0, static_cast<int>(lines.size()) - visibleLineCount - conversationScrollLines_);
+    const int endLine = std::min(static_cast<int>(lines.size()), startLine + visibleLineCount);
+
+    BeginScissorMode(static_cast<int>(layout.conversation.x) + 2, static_cast<int>(layout.conversation.y) + 36,
+                     static_cast<int>(layout.conversation.width) - 4,
+                     static_cast<int>(layout.conversation.height) - 40);
+    int y = conversationContentY;
+    for (int i = startLine; i < endLine; ++i) {
+        DrawText(lines[i].text.c_str(), conversationContentX, y, 18, lines[i].color);
+        y += lineHeight;
     }
+    EndScissorMode();
 
     const std::string cursor = ((GetTime() * 2) - static_cast<int>(GetTime() * 2) > 0.5) ? "_" : " ";
     DrawText((inputBuffer_ + cursor).c_str(), static_cast<int>(layout.input.x) + 12,
@@ -177,4 +207,55 @@ void App::addConsole(const std::string& level, const std::string& text) {
     if (console_.size() > 100) {
         console_.erase(console_.begin(), console_.begin() + 20);
     }
+}
+
+std::vector<std::string> App::wrapTextToWidth(const std::string& text, int fontSize, int maxWidth) const {
+    if (text.empty()) {
+        return {""};
+    }
+
+    std::vector<std::string> lines;
+    std::istringstream stream(text);
+    std::string word;
+    std::string currentLine;
+
+    while (stream >> word) {
+        std::string candidate = currentLine.empty() ? word : currentLine + " " + word;
+        if (MeasureText(candidate.c_str(), fontSize) <= maxWidth) {
+            currentLine = std::move(candidate);
+            continue;
+        }
+
+        if (!currentLine.empty()) {
+            lines.push_back(currentLine);
+            currentLine.clear();
+        }
+
+        if (MeasureText(word.c_str(), fontSize) <= maxWidth) {
+            currentLine = word;
+            continue;
+        }
+
+        std::string splitChunk;
+        for (char ch : word) {
+            std::string splitCandidate = splitChunk + ch;
+            if (MeasureText(splitCandidate.c_str(), fontSize) > maxWidth && !splitChunk.empty()) {
+                lines.push_back(splitChunk);
+                splitChunk.clear();
+            }
+            splitChunk.push_back(ch);
+        }
+        if (!splitChunk.empty()) {
+            currentLine = splitChunk;
+        }
+    }
+
+    if (!currentLine.empty()) {
+        lines.push_back(currentLine);
+    }
+
+    if (lines.empty()) {
+        lines.push_back("");
+    }
+    return lines;
 }
