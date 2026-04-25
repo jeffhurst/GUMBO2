@@ -68,6 +68,27 @@ async def test_event_log_and_save_turn(tmp_path, monkeypatch):
     assert saved_path.exists()
 
 
+@pytest.mark.asyncio
+async def test_boot_agent_streams_boot_response(tmp_path, monkeypatch):
+    seen_messages = {}
+
+    async def _fake_boot_stream(messages):
+        seen_messages["messages"] = messages
+        yield "Boot "
+        yield "ready"
+
+    monkeypatch.setattr(graph, "stream_chat", _fake_boot_stream)
+    monkeypatch.setattr(graph, "save_turn_record", _save_to_tmp(tmp_path))
+    monkeypatch.setattr(graph, "make_turn_id", lambda: "20260424_000000_004")
+
+    ws = FakeWebSocket()
+    await graph.boot_agent(ws)
+
+    assert seen_messages["messages"][0]["content"].startswith("# Gumbo Boot Prompt")
+    assert {"type": "assistant_message", "text": "Boot ready"} in ws.sent
+    assert any(item.get("type") == "token" for item in ws.sent)
+
+
 async def _fake_stream(_messages):
     yield "Hello "
     yield "world"
