@@ -123,11 +123,12 @@ async def draft_direct_response(state: AgentState) -> dict[str, Any]:
 
 @traceable(name="Deliver to User", run_type="chain")
 async def deliver_to_user(state: AgentState) -> dict[str, Any]:
+    assistant_text = state.get("assistant_text", "")
+    print(f"[gumbo] assistant response: {assistant_text}")
+
     websocket = state.get("websocket")
     if websocket is not None:
-        await websocket.send_json(
-            {"type": "assistant_message", "text": state.get("assistant_text", "")}
-        )
+        await websocket.send_json({"type": "assistant_message", "text": assistant_text})
 
     events = _append_event(state, "delivered_to_user")
     return {"event_log": events}
@@ -194,10 +195,11 @@ builder.add_edge("save_turn", END)
 APP_GRAPH = builder.compile()
 
 
-async def boot_agent() -> None:
-    """Run exactly one graph cycle at backend startup for LangSmith visibility."""
+async def boot_agent(websocket: WebSocket | None = None) -> None:
+    """Run exactly one boot cycle and optionally stream it over websocket."""
+    boot_prompt = settings.boot_prompt_path.read_text(encoding="utf-8")
     initial_state: AgentState = {
-        "user_text": "",
+        "user_text": boot_prompt,
         "assistant_text": "",
         "event_log": [
             EventLogEntry(
@@ -211,7 +213,7 @@ async def boot_agent() -> None:
             intent="chat",
         ).model_dump(),
         "error": None,
-        "websocket": None,
+        "websocket": websocket,
         "boot_mode": True,
     }
     await APP_GRAPH.ainvoke(initial_state)
