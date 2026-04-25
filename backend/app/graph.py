@@ -26,7 +26,9 @@ class AgentState(TypedDict, total=False):
     boot_mode: bool
 
 
-def _append_event(state: AgentState, event: str, detail: str = "") -> list[dict[str, Any]]:
+def _append_event(
+    state: AgentState, event: str, detail: str = ""
+) -> list[dict[str, Any]]:
     events = list(state.get("event_log", []))
     events.append(EventLogEntry(event=event, detail=detail).model_dump())
     return events
@@ -123,7 +125,9 @@ async def draft_direct_response(state: AgentState) -> dict[str, Any]:
 async def deliver_to_user(state: AgentState) -> dict[str, Any]:
     websocket = state.get("websocket")
     if websocket is not None:
-        await websocket.send_json({"type": "assistant_message", "text": state.get("assistant_text", "")})
+        await websocket.send_json(
+            {"type": "assistant_message", "text": state.get("assistant_text", "")}
+        )
 
     events = _append_event(state, "delivered_to_user")
     return {"event_log": events}
@@ -137,8 +141,12 @@ def save_turn(state: AgentState) -> dict[str, Any]:
         user_input=state.get("user_text", ""),
         assistant_response=state.get("assistant_text", ""),
         classification=Classification.model_validate(state.get("classification", {})),
-        event_log=[EventLogEntry.model_validate(item) for item in state.get("event_log", [])],
-        context_snapshot=ContextSnapshot.model_validate(state.get("context_snapshot", {})),
+        event_log=[
+            EventLogEntry.model_validate(item) for item in state.get("event_log", [])
+        ],
+        context_snapshot=ContextSnapshot.model_validate(
+            state.get("context_snapshot", {})
+        ),
         error=state.get("error"),
     )
     saved_path = save_turn_record(turn_record)
@@ -199,7 +207,7 @@ async def boot_agent() -> None:
         ],
         "classification": Classification(
             needs_clarification=False,
-            can_respond_direct=False,
+            can_respond_direct=True,
             intent="chat",
         ).model_dump(),
         "error": None,
