@@ -89,6 +89,13 @@ You can also run backend manually:
 .\scripts\run_backend.ps1
 ```
 
+If a previous backend is already healthy on port `8000`, the script now reuses that process and exits cleanly.
+To force a true restart on the same port, run:
+
+```powershell
+.\scripts\run_backend.ps1 -ForceRestart
+```
+
 Or build+run frontend in one command:
 
 ```powershell
