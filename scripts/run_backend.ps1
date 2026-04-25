@@ -1,6 +1,10 @@
 $ErrorActionPreference = 'Stop'
 Set-Location "$PSScriptRoot\..\backend"
 
+param(
+    [switch]$ForceRestart
+)
+
 if (Test-Path ".venv\Scripts\Activate.ps1") {
     . .venv\Scripts\Activate.ps1
 } else {
@@ -8,5 +12,35 @@ if (Test-Path ".venv\Scripts\Activate.ps1") {
     exit 1
 }
 
+$host = "127.0.0.1"
+$port = 8000
+$healthUrl = "http://$host`:$port/health"
 
-python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+function Get-ListeningPids([int]$LocalPort) {
+    $listeners = Get-NetTCPConnection -LocalPort $LocalPort -State Listen -ErrorAction SilentlyContinue
+    if (-not $listeners) { return @() }
+    return $listeners | Select-Object -ExpandProperty OwningProcess -Unique
+}
+
+if ($ForceRestart) {
+    $existingPids = Get-ListeningPids -LocalPort $port
+    if ($existingPids.Count -gt 0) {
+        Write-Host "Stopping process(es) already listening on $host`:$port -> $($existingPids -join ', ')"
+        foreach ($pid in $existingPids) {
+            Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue
+        }
+        Start-Sleep -Seconds 1
+    }
+} else {
+    try {
+        $health = Invoke-WebRequest -UseBasicParsing -Uri $healthUrl -TimeoutSec 2
+        if ($health.StatusCode -eq 200) {
+            Write-Host "Backend already running at $healthUrl. Reusing existing process."
+            exit 0
+        }
+    } catch {
+        # no healthy listener on expected backend port; continue launching
+    }
+}
+
+python -m uvicorn app.main:app --host $host --port $port
