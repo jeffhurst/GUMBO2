@@ -52,4 +52,12 @@ if ($ForceRestart) {
     }
 }
 
-python -m uvicorn app.main:app --host $backendHost --port $port
+try {
+    python -m uvicorn app.main:app --host $backendHost --port $port
+} finally {
+    if (Get-Command deactivate -ErrorAction SilentlyContinue) {
+        deactivate
+    }
+
+    Set-Location ..
+}
