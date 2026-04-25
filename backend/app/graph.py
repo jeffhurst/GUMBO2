@@ -4,7 +4,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal, TypedDict
 
-from fastapi import WebSocket
+from fastapi import WebSocket, WebSocketDisconnect
 from langgraph.graph import END, StateGraph
 from langsmith import traceable
 
@@ -32,6 +32,28 @@ def _append_event(
     events = list(state.get("event_log", []))
     events.append(EventLogEntry(event=event, detail=detail).model_dump())
     return events
+
+
+def _is_client_disconnected(exc: Exception) -> bool:
+    name = exc.__class__.__name__
+    module = exc.__class__.__module__
+    if isinstance(exc, WebSocketDisconnect):
+        return True
+    return name == "ClientDisconnected" and module.startswith("uvicorn.")
+
+
+async def _safe_send_json(
+    websocket: WebSocket | None, payload: dict[str, Any]
+) -> bool:
+    if websocket is None:
+        return True
+    try:
+        await websocket.send_json(payload)
+    except Exception as exc:  # noqa: BLE001
+        if _is_client_disconnected(exc):
+            return False
+        raise
+    return True
 
 
 @traceable(name="Hydrate AgentState", run_type="chain")
@@ -109,8 +131,9 @@ async def draft_direct_response(state: AgentState) -> dict[str, Any]:
     try:
         async for token in stream_chat(messages):
             chunks.append(token)
-            if websocket is not None:
-                await websocket.send_json({"type": "token", "text": token})
+            if not await _safe_send_json(websocket, {"type": "token", "text": token}):
+                events = _append_event(state, "client_disconnected_during_stream")
+                return {"assistant_text": "".join(chunks).strip(), "event_log": events}
     except OllamaUnavailableError as exc:
         error_message = f"Ollama unavailable: {exc}"
         events = _append_event(state, "ollama_unavailable", str(exc))
@@ -130,15 +153,24 @@ async def deliver_to_user(state: AgentState) -> dict[str, Any]:
     websocket = state.get("websocket")
     if websocket is not None:
         if error:
-            await websocket.send_json(
-                {"type": "alert", "level": "error", "message": error}
+            sent = await _safe_send_json(
+                websocket,
+                {"type": "alert", "level": "error", "message": error},
             )
+            if not sent:
+                events = _append_event(state, "client_disconnected_before_delivery")
+                return {"event_log": events}
             if not assistant_text:
                 assistant_text = (
                     "I couldn't generate a response because the local model backend "
                     "is unavailable."
                 )
-        await websocket.send_json({"type": "assistant_message", "text": assistant_text})
+        sent = await _safe_send_json(
+            websocket, {"type": "assistant_message", "text": assistant_text}
+        )
+        if not sent:
+            events = _append_event(state, "client_disconnected_before_delivery")
+            return {"event_log": events}
 
     events = _append_event(state, "delivered_to_user")
     return {"event_log": events}
