@@ -22,10 +22,11 @@ class App {
     void run();
 
   private:
-    void handleInput();
+    void handleInput(const LayoutRects& layout);
     void processBackendEvents();
     void draw(const LayoutRects& layout);
     void addConsole(const std::string& level, const std::string& text);
+    std::vector<std::string> wrapTextToWidth(const std::string& text, int fontSize, int maxWidth) const;
 
     BackendProcess backend_;
     WebSocketClient wsClient_;
@@ -34,4 +35,5 @@ class App {
     std::vector<std::string> backendLogs_;
     std::string inputBuffer_;
     bool hasStreamingAssistant_ = false;
+    int conversationScrollLines_ = 0;
 };
