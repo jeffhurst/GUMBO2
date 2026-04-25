@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
+from threading import ThreadError
 from typing import Any, Literal, TypedDict
 
 from fastapi import WebSocket, WebSocketDisconnect
@@ -9,7 +10,13 @@ from langgraph.graph import END, StateGraph
 from langsmith import traceable
 
 from .config import settings
-from .memory import load_recent_turns, make_turn_id, save_turn_record
+from .memory import (
+    load_last_interaction,
+    load_recent_turns,
+    make_turn_id,
+    save_last_interaction,
+    save_turn_record,
+)
 from .ollama_client import OllamaUnavailableError, stream_chat
 from .schemas import Classification, ContextSnapshot, EventLogEntry, TurnRecord
 
@@ -24,6 +31,8 @@ class AgentState(TypedDict, total=False):
     context_snapshot: dict[str, Any]
     saved_path: Path | None
     boot_mode: bool
+    boot_time: str
+    context_full: str
 
 
 def _append_event(
@@ -42,9 +51,7 @@ def _is_client_disconnected(exc: Exception) -> bool:
     return name == "ClientDisconnected" and module.startswith("uvicorn.")
 
 
-async def _safe_send_json(
-    websocket: WebSocket | None, payload: dict[str, Any]
-) -> bool:
+async def _safe_send_json(websocket: WebSocket | None, payload: dict[str, Any]) -> bool:
     if websocket is None:
         return True
     try:
@@ -58,9 +65,30 @@ async def _safe_send_json(
 
 @traceable(name="Hydrate AgentState", run_type="chain")
 def hydrate_agent_state(state: AgentState) -> dict[str, Any]:
+    now = datetime.now()
+    now_str = now.strftime("%A, %B %d, %Y, %I:%M %p")
+    print(f"[gumbo] hydrate_agent_state: hydrating state at {now}")
+
+    state["context_full"] = settings.persona_prompt_path.read_text(encoding="utf-8")
+
+    if state["boot_mode"]:
+        state["boot_time"] = now_str
+        state["context_full"] += (
+            f"\n\nThe User has just booted you up, the current date and time is {now_str}."
+        )
+        state["context_full"] += (
+            f"\nYour last interaction with the user was: {load_last_interaction()}."
+        )
+
+    print(state["context_full"])
+
     boot_prompt = settings.boot_prompt_path.read_text(encoding="utf-8")
     recent_turns = load_recent_turns(limit=5)
     events = _append_event(state, "hydrated_state")
+    then = datetime.now() - now
+    print(
+        f"[gumbo] hydrate_agent_state: state hydrated in {then.total_seconds()} seconds"
+    )
     return {
         "event_log": events,
         "context_snapshot": ContextSnapshot(
@@ -195,6 +223,9 @@ def save_turn(state: AgentState) -> dict[str, Any]:
     saved_path = save_turn_record(turn_record)
 
     events = _append_event(state, "saved_turn", str(saved_path))
+    print(turn_record)
+    print(events)
+    print("EXIT: SUCCESS")
     return {"saved_path": saved_path, "event_log": events}
 
 

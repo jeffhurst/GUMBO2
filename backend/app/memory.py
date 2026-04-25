@@ -37,3 +37,24 @@ def save_turn_record(record: TurnRecord) -> Path:
     with file_path.open("w", encoding="utf-8") as handle:
         json.dump(record.model_dump(), handle, indent=2)
     return file_path
+
+
+def save_last_interaction(text: str) -> Path:
+    ensure_memory_dirs()
+    file_path = settings.memory_turns_dir / "last_interaction.txt"
+
+    with file_path.open("w", encoding="utf-8") as handle:
+        handle.write(text)
+
+    return file_path
+
+
+def load_last_interaction() -> str:
+    ensure_memory_dirs()
+    file_path = settings.memory_turns_dir / "last_interaction.txt"
+
+    if not file_path.exists():
+        return ""
+
+    with file_path.open("r", encoding="utf-8") as handle:
+        return handle.read()
