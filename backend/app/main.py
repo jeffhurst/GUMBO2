@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 
 from .config import settings
@@ -8,6 +10,13 @@ from .memory import ensure_memory_dirs
 from .schemas import UserMessage
 
 app = FastAPI(title=settings.app_name)
+
+
+def _read_boot_prompt_for_greeting() -> str:
+    raw_prompt = settings.boot_prompt_path.read_text(encoding="utf-8").strip()
+    # Keep markdown-heavy formatting out of the first assistant message.
+    prompt_without_headers = re.sub(r"^#.*$", "", raw_prompt, flags=re.MULTILINE).strip()
+    return prompt_without_headers or "Gumbo is ready for your input."
 
 
 @app.on_event("startup")
@@ -26,6 +35,9 @@ async def ws_chat(websocket: WebSocket) -> None:
     await websocket.accept()
     await websocket.send_json(
         {"type": "status", "message": "Connected to Gumbo backend."}
+    )
+    await websocket.send_json(
+        {"type": "assistant_message", "text": _read_boot_prompt_for_greeting()}
     )
 
     try:
