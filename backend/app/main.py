@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import re
+import signal
 import sys
 from contextlib import suppress
 
@@ -42,7 +44,8 @@ async def _run_terminal_chat_session() -> None:
 
         cleaned = user_text.strip()
         if cleaned.lower() in {"exit", "quit", "/exit"}:
-            print("[gumbo] Leaving terminal chat mode.")
+            print("[gumbo] Leaving terminal chat mode and shutting down backend.")
+            os.kill(os.getpid(), signal.SIGINT)
             return
         if not cleaned:
             continue
