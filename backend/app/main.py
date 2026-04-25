@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 
 from .config import settings
-from .graph import run_agent_turn
+from .graph import boot_agent, run_agent_turn
 from .memory import ensure_memory_dirs
 from .schemas import UserMessage
 
@@ -13,6 +13,7 @@ app = FastAPI(title=settings.app_name)
 @app.on_event("startup")
 async def startup_event() -> None:
     ensure_memory_dirs()
+    await boot_agent()
 
 
 @app.get("/health")
@@ -23,7 +24,9 @@ async def health() -> dict[str, str]:
 @app.websocket("/ws/chat")
 async def ws_chat(websocket: WebSocket) -> None:
     await websocket.accept()
-    await websocket.send_json({"type": "status", "message": "Connected to Gumbo backend."})
+    await websocket.send_json(
+        {"type": "status", "message": "Connected to Gumbo backend."}
+    )
 
     try:
         while True:
@@ -33,4 +36,6 @@ async def ws_chat(websocket: WebSocket) -> None:
     except WebSocketDisconnect:
         return
     except Exception as exc:  # noqa: BLE001
-        await websocket.send_json({"type": "alert", "level": "error", "message": f"Server error: {exc}"})
+        await websocket.send_json(
+            {"type": "alert", "level": "error", "message": f"Server error: {exc}"}
+        )
