@@ -12,6 +12,7 @@ class BackendProcess {
     bool waitUntilReady(int timeoutMs);
     std::vector<std::string> pollLogLines();
     void stopIfStarted();
+    void keepBackendRunningOnExit();
 
   private:
     bool healthCheck();

@@ -9,6 +9,11 @@ bool WebSocketClient::connect(const std::string& url) {
     socket_.setOnMessageCallback([this](const ix::WebSocketMessagePtr& msg) {
         if (msg->type == ix::WebSocketMessageType::Open) {
             connected_ = true;
+            std::scoped_lock lock(mutex_);
+            IncomingEvent event;
+            event.type = "status";
+            event.message = "WebSocket connected.";
+            events_.push(event);
             return;
         }
 

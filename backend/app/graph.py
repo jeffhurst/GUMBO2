@@ -124,10 +124,20 @@ async def draft_direct_response(state: AgentState) -> dict[str, Any]:
 @traceable(name="Deliver to User", run_type="chain")
 async def deliver_to_user(state: AgentState) -> dict[str, Any]:
     assistant_text = state.get("assistant_text", "")
+    error = state.get("error")
     print(f"[gumbo] assistant response: {assistant_text}")
 
     websocket = state.get("websocket")
     if websocket is not None:
+        if error:
+            await websocket.send_json(
+                {"type": "alert", "level": "error", "message": error}
+            )
+            if not assistant_text:
+                assistant_text = (
+                    "I couldn't generate a response because the local model backend "
+                    "is unavailable."
+                )
         await websocket.send_json({"type": "assistant_message", "text": assistant_text})
 
     events = _append_event(state, "delivered_to_user")
