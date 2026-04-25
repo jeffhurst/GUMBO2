@@ -17,12 +17,12 @@ function Restart-BackendIfRunning {
         return
     }
 
-    foreach ($pid in $owningPids) {
+    foreach ($processId in $owningPids) {
         try {
-            Stop-Process -Id $pid -Force -ErrorAction Stop
-            Write-Host "Stopped existing backend process (PID: $pid) on port $backendPort."
+            Stop-Process -Id $processId -Force -ErrorAction Stop
+            Write-Host "Stopped existing backend process (PID: $processId) on port $backendPort."
         } catch {
-            Write-Warning "Unable to stop process $pid on port ${backendPort}: $($_.Exception.Message)"
+            Write-Warning "Unable to stop process $processId on port ${backendPort}: $($_.Exception.Message)"
         }
     }
 
