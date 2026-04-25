@@ -102,7 +102,7 @@ void App::processBackendEvents() {
             if (hasStreamingAssistant_ && !chat_.empty()) {
                 chat_.back().text += event->text;
             }
-        } else if (event->type == "final") {
+        } else if (event->type == "final" || event->type == "assistant_message") {
             if (hasStreamingAssistant_ && !chat_.empty()) {
                 chat_.back().text = event->text;
             }
