@@ -33,7 +33,7 @@ async def _read_terminal_input(prompt: str) -> str | None:
 
 
 async def _run_terminal_chat_session() -> None:
-    print("[gumbo] Terminal chat started. Type 'exit' to leave chat mode.")
+    print("[gumbo] Chat mode enabled. Type 'exit' to leave.")
     while True:
         user_text = await _read_terminal_input("you> ")
         if user_text is None:
@@ -60,34 +60,43 @@ async def _run_terminal_chat_session() -> None:
             print(f"[gumbo] warning: {result['error']}")
 
 
-async def _terminal_command_loop() -> None:
+async def _wait_for_backend_to_listen(
+    timeout_seconds: float = 10.0, poll_interval: float = 0.1
+) -> bool:
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout_seconds
+    host = settings.backend_host
+    port = settings.backend_port
+
+    while loop.time() < deadline:
+        try:
+            _, writer = await asyncio.open_connection(host, port)
+            writer.close()
+            await writer.wait_closed()
+            return True
+        except OSError:
+            await asyncio.sleep(poll_interval)
+    return False
+
+
+async def _run_terminal_boot_and_chat() -> None:
     if not sys.stdin or not sys.stdin.isatty():
         return
 
-    print("[gumbo] Type 'gumbo chat' at any time to open terminal chat mode.")
-    while True:
-        command = await _read_terminal_input("command> ")
-        if command is None:
-            print("[gumbo] Terminal input closed. Command loop stopped.")
-            return
+    backend_ready = await _wait_for_backend_to_listen()
+    if not backend_ready:
+        print("[gumbo] warning: backend readiness check timed out; continuing.")
 
-        cleaned = command.strip().lower()
-        if not cleaned:
-            continue
-        if cleaned == "gumbo chat":
-            await _run_terminal_chat_session()
-            print("[gumbo] Back to command mode. Type 'gumbo chat' to chat again.")
-            continue
-
-        print("[gumbo] Unknown command. Available command: gumbo chat")
+    print("[gumbo] Running boot prompt...")
+    await boot_agent()
+    await _run_terminal_chat_session()
 
 
 @app.on_event("startup")
 async def startup_event() -> None:
     global _terminal_chat_task
     ensure_memory_dirs()
-    await boot_agent()
-    _terminal_chat_task = asyncio.create_task(_terminal_command_loop())
+    _terminal_chat_task = asyncio.create_task(_run_terminal_boot_and_chat())
 
 
 @app.on_event("shutdown")
