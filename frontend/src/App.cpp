@@ -105,6 +105,8 @@ void App::processBackendEvents() {
         } else if (event->type == "final" || event->type == "assistant_message") {
             if (hasStreamingAssistant_ && !chat_.empty()) {
                 chat_.back().text = event->text;
+            } else if (!event->text.empty()) {
+                chat_.push_back({"assistant", event->text});
             }
             hasStreamingAssistant_ = false;
         } else if (event->type == "status") {
