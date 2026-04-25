@@ -53,11 +53,17 @@ void BackendProcess::stopIfStarted() {
     }
     if (startedByFrontend_ && processHandle_ != nullptr) {
         TerminateProcess(static_cast<HANDLE>(processHandle_), 0);
+    }
+    if (processHandle_ != nullptr) {
         CloseHandle(static_cast<HANDLE>(processHandle_));
         processHandle_ = nullptr;
     }
     startedByFrontend_ = false;
 #endif
+}
+
+void BackendProcess::keepBackendRunningOnExit() {
+    startedByFrontend_ = false;
 }
 
 bool BackendProcess::healthCheck() {
