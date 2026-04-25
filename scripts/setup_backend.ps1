@@ -7,3 +7,4 @@ if (!(Test-Path .venv)) {
 
 .\.venv\Scripts\python.exe -m pip install --upgrade pip
 .\.venv\Scripts\pip.exe install -r requirements.txt
+cd ..
