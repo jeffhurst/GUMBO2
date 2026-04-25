@@ -27,7 +27,6 @@ async def ws_chat(websocket: WebSocket) -> None:
     await websocket.send_json(
         {"type": "status", "message": "Connected to Gumbo backend."}
     )
-    await boot_agent(websocket)
 
     try:
         while True:

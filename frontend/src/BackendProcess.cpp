@@ -123,71 +123,23 @@ void BackendProcess::closeLogPipe() {
 }
 
 bool BackendProcess::launchBackendWithPython(const std::wstring& pythonExePath) {
-    SECURITY_ATTRIBUTES sa{};
-    sa.nLength = sizeof(sa);
-    sa.bInheritHandle = TRUE;
-
-    HANDLE readPipe = nullptr;
-    HANDLE writePipe = nullptr;
-    if (!CreatePipe(&readPipe, &writePipe, &sa, 0)) {
-        return false;
-    }
-    SetHandleInformation(readPipe, HANDLE_FLAG_INHERIT, 0);
-
     STARTUPINFOW si{};
     PROCESS_INFORMATION pi{};
     si.cb = sizeof(si);
-    si.dwFlags = STARTF_USESTDHANDLES;
-    si.hStdOutput = writePipe;
-    si.hStdError = writePipe;
 
     std::wstring cmd =
         pythonExePath + L" -m uvicorn app.main:app --host 127.0.0.1 --port 8000";
-    BOOL started = CreateProcessW(nullptr, cmd.data(), nullptr, nullptr, TRUE, CREATE_NO_WINDOW, nullptr,
+    BOOL started = CreateProcessW(nullptr, cmd.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr,
                                   L"..\\backend", &si, &pi);
-    CloseHandle(writePipe);
 
     if (!started) {
-        CloseHandle(readPipe);
         return false;
     }
 
     startedByFrontend_ = true;
     processHandle_ = pi.hProcess;
     CloseHandle(pi.hThread);
-    logReadPipe_ = readPipe;
     appendLogLine("Backend process launched.");
-
-    HANDLE threadHandle = CreateThread(
-        nullptr, 0,
-        [](LPVOID param) -> DWORD {
-            auto* self = static_cast<BackendProcess*>(param);
-            HANDLE pipe = static_cast<HANDLE>(self->logReadPipe_);
-            if (!pipe) return 0;
-
-            std::string buffer;
-            char chunk[256];
-            DWORD bytesRead = 0;
-            while (ReadFile(pipe, chunk, sizeof(chunk), &bytesRead, nullptr) && bytesRead > 0) {
-                buffer.append(chunk, chunk + bytesRead);
-                size_t pos = 0;
-                while ((pos = buffer.find('\n')) != std::string::npos) {
-                    std::string line = buffer.substr(0, pos);
-                    if (!line.empty() && line.back() == '\r') line.pop_back();
-                    self->appendLogLine(line);
-                    buffer.erase(0, pos + 1);
-                }
-            }
-            if (!buffer.empty()) self->appendLogLine(buffer);
-            return 0;
-        },
-        this, 0, nullptr);
-
-    if (threadHandle != nullptr) {
-        logThread_ = threadHandle;
-    } else {
-        appendLogLine("warning: failed to start backend log capture thread.");
-    }
 
     return true;
 }
