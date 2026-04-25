@@ -19,7 +19,9 @@ _terminal_chat_task: asyncio.Task[None] | None = None
 def _read_boot_prompt_for_greeting() -> str:
     raw_prompt = settings.boot_prompt_path.read_text(encoding="utf-8").strip()
     # Keep markdown-heavy formatting out of the first assistant message.
-    prompt_without_headers = re.sub(r"^#.*$", "", raw_prompt, flags=re.MULTILINE).strip()
+    prompt_without_headers = re.sub(
+        r"^#.*$", "", raw_prompt, flags=re.MULTILINE
+    ).strip()
     return prompt_without_headers or "Gumbo is ready for your input."
 
 
