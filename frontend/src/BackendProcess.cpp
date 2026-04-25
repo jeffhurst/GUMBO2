@@ -2,6 +2,7 @@
 
 #include <chrono>
 #include <thread>
+#include <utility>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -9,33 +10,17 @@
 #pragma comment(lib, "winhttp.lib")
 #endif
 
+BackendProcess::~BackendProcess() {
+    stopIfStarted();
+}
+
 bool BackendProcess::ensureBackendRunning() {
     if (healthCheck()) {
         return true;
     }
 #ifdef _WIN32
-    STARTUPINFOW si{};
-    PROCESS_INFORMATION pi{};
-    si.cb = sizeof(si);
-
-    std::wstring cmd =
-        L".venv\\Scripts\\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8000";
-    if (CreateProcessW(nullptr, cmd.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr,
-                       L"..\\backend", &si, &pi)) {
-        startedByFrontend_ = true;
-        processHandle_ = pi.hProcess;
-        CloseHandle(pi.hThread);
-        return true;
-    }
-
-    std::wstring fallback = L"python -m uvicorn app.main:app --host 127.0.0.1 --port 8000";
-    if (CreateProcessW(nullptr, fallback.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr,
-                       L"..\\backend", &si, &pi)) {
-        startedByFrontend_ = true;
-        processHandle_ = pi.hProcess;
-        CloseHandle(pi.hThread);
-        return true;
-    }
+    if (launchBackendWithPython(L"..\\backend\\.venv\\Scripts\\python.exe")) return true;
+    if (launchBackendWithPython(L"python")) return true;
 #endif
     return false;
 }
@@ -51,13 +36,27 @@ bool BackendProcess::waitUntilReady(int timeoutMs) {
     return false;
 }
 
+std::vector<std::string> BackendProcess::pollLogLines() {
+    std::lock_guard<std::mutex> lock(logMutex_);
+    std::vector<std::string> lines = std::move(pendingLogLines_);
+    pendingLogLines_.clear();
+    return lines;
+}
+
 void BackendProcess::stopIfStarted() {
 #ifdef _WIN32
+    closeLogPipe();
+    if (logThread_ != nullptr) {
+        WaitForSingleObject(static_cast<HANDLE>(logThread_), 500);
+        CloseHandle(static_cast<HANDLE>(logThread_));
+        logThread_ = nullptr;
+    }
     if (startedByFrontend_ && processHandle_ != nullptr) {
         TerminateProcess(static_cast<HANDLE>(processHandle_), 0);
         CloseHandle(static_cast<HANDLE>(processHandle_));
         processHandle_ = nullptr;
     }
+    startedByFrontend_ = false;
 #endif
 }
 
@@ -100,3 +99,90 @@ bool BackendProcess::healthCheck() {
     return false;
 #endif
 }
+
+void BackendProcess::appendLogLine(const std::string& line) {
+    std::lock_guard<std::mutex> lock(logMutex_);
+    pendingLogLines_.push_back(line);
+    if (pendingLogLines_.size() > 200) {
+        pendingLogLines_.erase(pendingLogLines_.begin(), pendingLogLines_.begin() + 50);
+    }
+}
+
+#ifdef _WIN32
+void BackendProcess::closeLogPipe() {
+    if (logReadPipe_ != nullptr) {
+        CloseHandle(static_cast<HANDLE>(logReadPipe_));
+        logReadPipe_ = nullptr;
+    }
+}
+
+bool BackendProcess::launchBackendWithPython(const std::wstring& pythonExePath) {
+    SECURITY_ATTRIBUTES sa{};
+    sa.nLength = sizeof(sa);
+    sa.bInheritHandle = TRUE;
+
+    HANDLE readPipe = nullptr;
+    HANDLE writePipe = nullptr;
+    if (!CreatePipe(&readPipe, &writePipe, &sa, 0)) {
+        return false;
+    }
+    SetHandleInformation(readPipe, HANDLE_FLAG_INHERIT, 0);
+
+    STARTUPINFOW si{};
+    PROCESS_INFORMATION pi{};
+    si.cb = sizeof(si);
+    si.dwFlags = STARTF_USESTDHANDLES;
+    si.hStdOutput = writePipe;
+    si.hStdError = writePipe;
+
+    std::wstring cmd =
+        pythonExePath + L" -m uvicorn app.main:app --host 127.0.0.1 --port 8000";
+    BOOL started = CreateProcessW(nullptr, cmd.data(), nullptr, nullptr, TRUE, CREATE_NO_WINDOW, nullptr,
+                                  L"..\\backend", &si, &pi);
+    CloseHandle(writePipe);
+
+    if (!started) {
+        CloseHandle(readPipe);
+        return false;
+    }
+
+    startedByFrontend_ = true;
+    processHandle_ = pi.hProcess;
+    CloseHandle(pi.hThread);
+    logReadPipe_ = readPipe;
+    appendLogLine("Backend process launched.");
+
+    HANDLE threadHandle = CreateThread(
+        nullptr, 0,
+        [](LPVOID param) -> DWORD {
+            auto* self = static_cast<BackendProcess*>(param);
+            HANDLE pipe = static_cast<HANDLE>(self->logReadPipe_);
+            if (!pipe) return 0;
+
+            std::string buffer;
+            char chunk[256];
+            DWORD bytesRead = 0;
+            while (ReadFile(pipe, chunk, sizeof(chunk), &bytesRead, nullptr) && bytesRead > 0) {
+                buffer.append(chunk, chunk + bytesRead);
+                size_t pos = 0;
+                while ((pos = buffer.find('\n')) != std::string::npos) {
+                    std::string line = buffer.substr(0, pos);
+                    if (!line.empty() && line.back() == '\r') line.pop_back();
+                    self->appendLogLine(line);
+                    buffer.erase(0, pos + 1);
+                }
+            }
+            if (!buffer.empty()) self->appendLogLine(buffer);
+            return 0;
+        },
+        this, 0, nullptr);
+
+    if (threadHandle != nullptr) {
+        logThread_ = threadHandle;
+    } else {
+        appendLogLine("warning: failed to start backend log capture thread.");
+    }
+
+    return true;
+}
+#endif

@@ -31,6 +31,7 @@ class App {
     WebSocketClient wsClient_;
     std::vector<ChatMessage> chat_;
     std::vector<ConsoleEvent> console_;
+    std::vector<std::string> backendLogs_;
     std::string inputBuffer_;
     bool hasStreamingAssistant_ = false;
 };
