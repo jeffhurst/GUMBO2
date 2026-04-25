@@ -55,6 +55,20 @@ async def test_normal_input_routes_to_direct_response(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_normal_input_routes_to_direct_response_without_websocket(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(graph, "stream_chat", _fake_stream)
+    monkeypatch.setattr(graph, "save_turn_record", _save_to_tmp(tmp_path))
+    monkeypatch.setattr(graph, "make_turn_id", lambda: "20260424_000000_020")
+
+    result = await graph.run_agent_turn("Tell me a joke")
+
+    assert result["classification"]["can_respond_direct"] is True
+    assert result["assistant_response"] == "Hello world"
+
+
+@pytest.mark.asyncio
 async def test_event_log_and_save_turn(tmp_path, monkeypatch):
     monkeypatch.setattr(graph, "stream_chat", _fake_stream)
     monkeypatch.setattr(graph, "save_turn_record", _save_to_tmp(tmp_path))

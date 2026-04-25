@@ -89,6 +89,14 @@ You can also run backend manually:
 .\scripts\run_backend.ps1
 ```
 
+While the backend is running in your terminal, you can enter:
+
+```text
+gumbo chat
+```
+
+This opens a terminal chat mode where you can type messages and get streamed Gumbo replies directly in the same console. Type `exit` to leave chat mode.
+
 If a previous backend is already healthy on port `8000`, the script now reuses that process and exits cleanly.
 To force a true restart on the same port, run:
 

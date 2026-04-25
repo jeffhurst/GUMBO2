@@ -261,7 +261,9 @@ async def boot_agent(websocket: WebSocket | None = None) -> None:
     await APP_GRAPH.ainvoke(initial_state)
 
 
-async def run_agent_turn(user_text: str, websocket: WebSocket) -> dict[str, Any]:
+async def run_agent_turn(
+    user_text: str, websocket: WebSocket | None = None
+) -> dict[str, Any]:
     initial_state: AgentState = {
         "user_text": user_text,
         "assistant_text": "",
