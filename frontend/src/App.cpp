@@ -75,6 +75,14 @@ void App::handleInput() {
 }
 
 void App::processBackendEvents() {
+    auto backendLines = backend_.pollLogLines();
+    for (const auto& line : backendLines) {
+        backendLogs_.push_back(line);
+        if (backendLogs_.size() > 300) {
+            backendLogs_.erase(backendLogs_.begin(), backendLogs_.begin() + 80);
+        }
+    }
+
     while (true) {
         auto event = wsClient_.pollEvent();
         if (!event.has_value()) {
@@ -106,7 +114,7 @@ void App::draw(const LayoutRects& layout) {
     DrawRectangleRec(layout.fdg, Color{28, 34, 42, 255});
     DrawRectangleRec(layout.console, Color{22, 22, 28, 255});
 
-    DrawText("Conversation", static_cast<int>(layout.conversation.x) + 12,
+    DrawText("Backend Output + Conversation", static_cast<int>(layout.conversation.x) + 12,
              static_cast<int>(layout.conversation.y) + 10, 20, RAYWHITE);
     DrawText("Input", static_cast<int>(layout.input.x) + 12, static_cast<int>(layout.input.y) + 8, 18,
              RAYWHITE);
@@ -116,7 +124,23 @@ void App::draw(const LayoutRects& layout) {
              20, RAYWHITE);
 
     int y = static_cast<int>(layout.conversation.y) + 40;
-    const int maxMessages = 18;
+    DrawText("Backend:", static_cast<int>(layout.conversation.x) + 12, y, 18, GOLD);
+    y += 24;
+
+    const int maxBackendLines = 8;
+    int backendStart = static_cast<int>(backendLogs_.size()) > maxBackendLines
+                           ? static_cast<int>(backendLogs_.size()) - maxBackendLines
+                           : 0;
+    for (int i = backendStart; i < static_cast<int>(backendLogs_.size()); ++i) {
+        DrawText(backendLogs_[i].c_str(), static_cast<int>(layout.conversation.x) + 12, y, 16, LIGHTGRAY);
+        y += 20;
+    }
+
+    y += 12;
+    DrawText("Chat:", static_cast<int>(layout.conversation.x) + 12, y, 18, SKYBLUE);
+    y += 24;
+
+    const int maxMessages = 9;
     int start = static_cast<int>(chat_.size()) > maxMessages ? static_cast<int>(chat_.size()) - maxMessages : 0;
     for (int i = start; i < static_cast<int>(chat_.size()); ++i) {
         const auto& msg = chat_[i];
